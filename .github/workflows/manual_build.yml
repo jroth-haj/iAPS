@@ -30,7 +30,7 @@ jobs:
             puts "Bearbeite #{path}..."
             project = Xcodeproj::Project.open(path)
             
-            # Haupt-Target bereinigen
+            # Haupt-Target bereinigen (Abhängigkeiten und Phasen)
             if path == 'FreeAPS.xcodeproj'
               main_target = project.targets.find { |t| t.name == 'FreeAPS' }
               if main_target
@@ -48,11 +48,13 @@ jobs:
               end
             end
             
+            # Watch-Targets komplett aus allen Projekten löschen
             project.targets.dup.each do |target|
               if target.name.downcase.include?('watch')
                 target.remove_from_project
               end
             end
+            
             project.save
           end
           EOF
@@ -60,7 +62,6 @@ jobs:
 
       - name: Build and Archive
         run: |
-          # Wir bauen hier direkt in einen Build-Ordner, um sicherzugehen, dass die Binary erzeugt wird
           xcodebuild archive \
           -workspace "FreeAPS.xcworkspace" \
           -scheme "FreeAPSWorkspace" \
@@ -81,41 +82,47 @@ jobs:
         run: |
           mkdir -p Payload
           
-          # Suche die .app im Archiv - wir suchen spezifisch im Products Ordner
+          # 1. Suche den .app Ordner im Archiv
           APP_PATH=$(find iAPS.xcarchive/Products/Applications -name "*.app" | head -n 1)
-          
-          # Falls dort nicht gefunden (wegen SKIP_INSTALL), suche im gesamten Archiv
           if [ -z "$APP_PATH" ]; then
             APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
           fi
-
+          
           if [ -z "$APP_PATH" ]; then
             echo "Fehler: App nicht gefunden!"
             exit 1
           fi
-
-          echo "Kopiere App von: $APP_PATH"
+          
+          echo "Kopiere $APP_PATH nach Payload/"
           cp -r "$APP_PATH" Payload/
           
           TARGET_APP=$(basename "$APP_PATH")
           INFO_PLIST="Payload/$TARGET_APP/Info.plist"
-          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
           
-          # Falls die Binary im .app Ordner fehlt, suchen wir sie in den Build-Intermediates
+          # 2. Lese den erwarteten Namen der Executable
+          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
+          echo "Info.plist erwartet Executable: $EXEC_NAME"
+          
+          # 3. Falls die Binary im App-Ordner fehlt, erzwinge die Suche in DerivedData
           if [ ! -f "Payload/$TARGET_APP/$EXEC_NAME" ]; then
-            echo "Binary $EXEC_NAME fehlt im App-Ordner. Suche in Intermediates..."
+            echo "Binary fehlt! Suche in DerivedData..."
+            # Suche nach einer ausführbaren Datei mit dem Namen in den Build-Ordnern
+            # Wir suchen nach Dateien mit Ausführungsrechten (+111)
             BINARY_SOURCE=$(find ~/Library/Developer/Xcode/DerivedData -name "$EXEC_NAME" -type f -perm +111 ! -name "*.dylib" ! -name "*.framework" | head -n 1)
+            
             if [ -n "$BINARY_SOURCE" ]; then
-              echo "Binary gefunden unter: $BINARY_SOURCE"
+              echo "Binary gefunden: $BINARY_SOURCE"
               cp "$BINARY_SOURCE" "Payload/$TARGET_APP/$EXEC_NAME"
             else
-              echo "FEHLER: Binärdatei konnte nirgendwo gefunden werden!"
+              echo "Kritischer Fehler: Keine Binärdatei erzeugt!"
               exit 1
             fi
           fi
           
+          # 4. Rechte sicherstellen
           chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
-          echo "IPA wird erstellt..."
+          
+          # 5. IPA erstellen
           zip -r iAPS.ipa Payload
 
       - name: Upload Artifact
