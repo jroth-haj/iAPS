@@ -20,19 +20,30 @@ jobs:
 
       - name: Stripping Watch & Extensions
         run: |
-          PROJ_PATH=$(find . -name "project.pbxproj" | head -n 1)
+          # Wir suchen die Projektdatei im Hauptverzeichnis
+          PROJ_PATH=$(find . -maxdepth 2 -name "project.pbxproj" | head -n 1)
+          echo "Bearbeite Projekt: $PROJ_PATH"
           sed -i '' '/FreeAPSWatch/d' "$PROJ_PATH"
           sed -i '' '/LiveActivityExtension/d' "$PROJ_PATH"
           sed -i '' '/WatchKit/d' "$PROJ_PATH"
 
-      - name: Find and Build
+      - name: Find Workspace and List Schemes
         run: |
-          # Wir suchen den echten Namen des Workspaces
-          WORKSPACE_NAME=$(find . -name "*.xcworkspace" -not -path "*/.*" | head -n 1)
+          # Suche NUR im Hauptverzeichnis nach dem Workspace
+          WORKSPACE_NAME=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
+          if [ -z "$WORKSPACE_NAME" ]; then
+            WORKSPACE_NAME=$(find . -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+          fi
+          echo "WORKSPACE_PATH=$WORKSPACE_NAME" >> $GITHUB_ENV
           echo "Gefundener Workspace: $WORKSPACE_NAME"
+          
+          # Zeige uns zur Sicherheit alle verfügbaren Schemes an
+          xcodebuild -workspace "$WORKSPACE_NAME" -list || xcodebuild -project "$WORKSPACE_NAME" -list
 
+      - name: Build and Archive
+        run: |
           xcodebuild archive \
-          -workspace "$WORKSPACE_NAME" \
+          -workspace "${{ env.WORKSPACE_PATH }}" \
           -scheme "FreeAPS" \
           -configuration Release \
           -archivePath iAPS.xcarchive \
@@ -48,7 +59,9 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p Payload
-          APP_PATH=$(find . -name "FreeAPS.app" -path "*/iAPS.xcarchive/*" | head -n 1)
+          # Suche die .app Datei im frisch erstellten Archiv
+          APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
+          echo "Gefundener App-Pfad: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r iAPS.ipa Payload
 
