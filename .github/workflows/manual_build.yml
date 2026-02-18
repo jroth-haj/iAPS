@@ -27,9 +27,10 @@ jobs:
 
       - name: Find and Build
         run: |
-          WORKSPACE_PATH=$(find . -maxdepth 2 -name "*.xcworkspace" | grep -v "Pods" | head -n 1)
-          WORKSPACE_NAME=$(basename "$WORKSPACE_PATH")
-          
+          # Wir suchen den echten Namen des Workspaces
+          WORKSPACE_NAME=$(find . -name "*.xcworkspace" -not -path "*/.*" | head -n 1)
+          echo "Gefundener Workspace: $WORKSPACE_NAME"
+
           xcodebuild archive \
           -workspace "$WORKSPACE_NAME" \
           -scheme "FreeAPS" \
