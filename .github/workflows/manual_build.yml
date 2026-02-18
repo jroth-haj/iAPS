@@ -95,13 +95,36 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p Payload
-          APP_PATH=$(find iAPS.xcarchive -name "FreeAPS.app" | head -n 1)
+          # Suche den .app Ordner im Archiv
+          APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "Fehler: App nicht gefunden!"
             exit 1
           fi
-          echo "Gefundener App-Pfad: $APP_PATH"
           cp -r "$APP_PATH" Payload/
+          
+          # FIX: Namen der Binärdatei mit Info.plist abgleichen
+          TARGET_APP=$(ls Payload | grep .app)
+          INFO_PLIST="Payload/$TARGET_APP/Info.plist"
+          # Lese den erwarteten Namen der Executable aus der Info.plist
+          # Da plutil binär sein kann, nutzen wir einen stabilen Weg
+          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
+          
+          echo "Info.plist erwartet Executable: $EXEC_NAME"
+          
+          # Prüfe, ob eine ausführbare Datei vorhanden ist und benenne sie ggf. um
+          # Wir suchen nach der größten Datei im App-Ordner, die keine Endung hat (meist die Binary)
+          CURRENT_EXEC=$(find "Payload/$TARGET_APP" -maxdepth 1 -type f ! -name "*.*" -exec executable {} \; -print | head -n 1)
+          
+          if [ ! -z "$CURRENT_EXEC" ] && [ "$(basename "$CURRENT_EXEC")" != "$EXEC_NAME" ]; then
+            echo "Benenne Binärdatei um: $(basename "$CURRENT_EXEC") -> $EXEC_NAME"
+            mv "$CURRENT_EXEC" "Payload/$TARGET_APP/$EXEC_NAME"
+          fi
+          
+          # Sicherstellen, dass die Binärdatei ausführbar ist (wichtig für Sideloadly)
+          chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
+          
+          # IPA erstellen
           zip -r iAPS.ipa Payload
 
       - name: Upload Artifact
