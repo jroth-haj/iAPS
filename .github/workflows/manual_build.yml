@@ -30,7 +30,6 @@ jobs:
             puts "Bearbeite #{path}..."
             project = Xcodeproj::Project.open(path)
             
-            # Haupt-Target bereinigen (Abhängigkeiten und Phasen)
             if path == 'FreeAPS.xcodeproj'
               main_target = project.targets.find { |t| t.name == 'FreeAPS' }
               if main_target
@@ -48,13 +47,11 @@ jobs:
               end
             end
             
-            # Watch-Targets komplett aus allen Projekten löschen
             project.targets.dup.each do |target|
               if target.name.downcase.include?('watch')
                 target.remove_from_project
               end
             end
-            
             project.save
           end
           EOF
@@ -89,7 +86,7 @@ jobs:
           fi
           
           if [ -z "$APP_PATH" ]; then
-            echo "Fehler: App nicht gefunden!"
+            echo "Fehler: App-Ordner nicht gefunden!"
             exit 1
           fi
           
@@ -99,30 +96,29 @@ jobs:
           TARGET_APP=$(basename "$APP_PATH")
           INFO_PLIST="Payload/$TARGET_APP/Info.plist"
           
-          # 2. Lese den erwarteten Namen der Executable
+          # 2. Lese den erwarteten Namen der Executable aus der Info.plist
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
           echo "Info.plist erwartet Executable: $EXEC_NAME"
           
-          # 3. Falls die Binary im App-Ordner fehlt, erzwinge die Suche in DerivedData
+          # 3. Notfall-Suche der Binärdatei in DerivedData
           if [ ! -f "Payload/$TARGET_APP/$EXEC_NAME" ]; then
-            echo "Binary fehlt! Suche in DerivedData..."
-            # Suche nach einer ausführbaren Datei mit dem Namen in den Build-Ordnern
-            # Wir suchen nach Dateien mit Ausführungsrechten (+111)
+            echo "Binary fehlt im App-Ordner! Starte Suche in DerivedData..."
+            # Wir suchen nach einer ausführbaren Datei (+111) mit dem korrekten Namen
             BINARY_SOURCE=$(find ~/Library/Developer/Xcode/DerivedData -name "$EXEC_NAME" -type f -perm +111 ! -name "*.dylib" ! -name "*.framework" | head -n 1)
             
             if [ -n "$BINARY_SOURCE" ]; then
-              echo "Binary gefunden: $BINARY_SOURCE"
+              echo "Binary gefunden unter: $BINARY_SOURCE"
               cp "$BINARY_SOURCE" "Payload/$TARGET_APP/$EXEC_NAME"
             else
-              echo "Kritischer Fehler: Keine Binärdatei erzeugt!"
+              echo "KRITISCHER FEHLER: Keine Binärdatei erzeugt!"
               exit 1
             fi
           fi
           
-          # 4. Rechte sicherstellen
+          # 4. Ausführrechte setzen (überlebenswichtig für Sideloadly)
           chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
           
-          # 5. IPA erstellen
+          # 5. IPA packen
           zip -r iAPS.ipa Payload
 
       - name: Upload Artifact
