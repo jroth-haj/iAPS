@@ -18,33 +18,18 @@ jobs:
         with:
           xcode-version: 'latest'
 
-      - name: Stripping Watch & Extensions
+      - name: Find Workspace and Build
         run: |
-          # Wir suchen die Projektdatei im Hauptverzeichnis
-          PROJ_PATH=$(find . -maxdepth 2 -name "project.pbxproj" | head -n 1)
-          echo "Bearbeite Projekt: $PROJ_PATH"
-          sed -i '' '/FreeAPSWatch/d' "$PROJ_PATH"
-          sed -i '' '/LiveActivityExtension/d' "$PROJ_PATH"
-          sed -i '' '/WatchKit/d' "$PROJ_PATH"
-
-      - name: Find Workspace and List Schemes
-        run: |
-          # Suche NUR im Hauptverzeichnis nach dem Workspace
-          WORKSPACE_NAME=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
-          if [ -z "$WORKSPACE_NAME" ]; then
-            WORKSPACE_NAME=$(find . -maxdepth 1 -name "*.xcodeproj" | head -n 1)
-          fi
-          echo "WORKSPACE_PATH=$WORKSPACE_NAME" >> $GITHUB_ENV
-          echo "Gefundener Workspace: $WORKSPACE_NAME"
+          # Wir nutzen den Haupt-Workspace der App
+          WORKSPACE="FreeAPS.xcworkspace"
+          # Das Scheme laut deiner .xcscheme Datei
+          SCHEME="FreeAPSWorkspace"
           
-          # Zeige uns zur Sicherheit alle verfügbaren Schemes an
-          xcodebuild -workspace "$WORKSPACE_NAME" -list || xcodebuild -project "$WORKSPACE_NAME" -list
+          echo "Baue Workspace: $WORKSPACE mit Scheme: $SCHEME"
 
-      - name: Build and Archive
-        run: |
           xcodebuild archive \
-          -workspace "${{ env.WORKSPACE_PATH }}" \
-          -scheme "FreeAPS" \
+          -workspace "$WORKSPACE" \
+          -scheme "$SCHEME" \
           -configuration Release \
           -archivePath iAPS.xcarchive \
           -sdk iphoneos \
@@ -54,13 +39,17 @@ jobs:
           CODE_SIGN_IDENTITY="" \
           CODE_SIGN_ENTITLEMENTS="" \
           GCC_WARN_INHIBIT_ALL_WARNINGS=YES \
+          COMPILER_INDEX_STORE_ENABLE=NO \
           SKIP_INSTALL=NO
 
       - name: Prepare IPA
         run: |
           mkdir -p Payload
-          # Suche die .app Datei im frisch erstellten Archiv
-          APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
+          # Wir suchen die gebaute App im Archiv
+          APP_PATH=$(find iAPS.xcarchive -name "FreeAPS.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
+          fi
           echo "Gefundener App-Pfad: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r iAPS.ipa Payload
