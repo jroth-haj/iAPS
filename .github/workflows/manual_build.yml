@@ -20,11 +20,7 @@ jobs:
 
       - name: Stripping Watch & Extensions
         run: |
-          # Wir suchen die Projektdatei
           PROJ_PATH=$(find . -name "project.pbxproj" | head -n 1)
-          echo "Bearbeite Projekt: $PROJ_PATH"
-          
-          # Wir entfernen die Targets für Watch und Extensions brutal aus der Projektdatei
           sed -i '' '/FreeAPSWatch/d' "$PROJ_PATH"
           sed -i '' '/LiveActivityExtension/d' "$PROJ_PATH"
           sed -i '' '/WatchKit/d' "$PROJ_PATH"
@@ -32,12 +28,8 @@ jobs:
       - name: Find and Build
         run: |
           WORKSPACE_PATH=$(find . -maxdepth 2 -name "*.xcworkspace" | grep -v "Pods" | head -n 1)
-          WORKSPACE_DIR=$(dirname "$WORKSPACE_PATH")
           WORKSPACE_NAME=$(basename "$WORKSPACE_PATH")
-          cd "$WORKSPACE_DIR"
           
-          echo "Baue gesäuberten Workspace: $WORKSPACE_NAME"
-
           xcodebuild archive \
           -workspace "$WORKSPACE_NAME" \
           -scheme "FreeAPS" \
@@ -56,9 +48,6 @@ jobs:
         run: |
           mkdir -p Payload
           APP_PATH=$(find . -name "FreeAPS.app" -path "*/iAPS.xcarchive/*" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find . -name "*.app" -path "*/iAPS.xcarchive/*" | head -n 1)
-          fi
           cp -r "$APP_PATH" Payload/
           zip -r iAPS.ipa Payload
 
