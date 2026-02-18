@@ -78,47 +78,23 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p Payload
-          
-          # 1. Suche den .app Ordner im Archiv
-          APP_PATH=$(find iAPS.xcarchive/Products/Applications -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
-          fi
-          
-          if [ -z "$APP_PATH" ]; then
-            echo "Fehler: App-Ordner nicht gefunden!"
-            exit 1
-          fi
-          
-          echo "Kopiere $APP_PATH nach Payload/"
+          APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
           cp -r "$APP_PATH" Payload/
           
           TARGET_APP=$(basename "$APP_PATH")
           INFO_PLIST="Payload/$TARGET_APP/Info.plist"
-          
-          # 2. Lese den erwarteten Namen der Executable aus der Info.plist
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
-          echo "Info.plist erwartet Executable: $EXEC_NAME"
           
-          # 3. Notfall-Suche der Binärdatei in DerivedData
+          # Binary Fix
           if [ ! -f "Payload/$TARGET_APP/$EXEC_NAME" ]; then
-            echo "Binary fehlt im App-Ordner! Starte Suche in DerivedData..."
-            # Wir suchen nach einer ausführbaren Datei (+111) mit dem korrekten Namen
             BINARY_SOURCE=$(find ~/Library/Developer/Xcode/DerivedData -name "$EXEC_NAME" -type f -perm +111 ! -name "*.dylib" ! -name "*.framework" | head -n 1)
-            
-            if [ -n "$BINARY_SOURCE" ]; then
-              echo "Binary gefunden unter: $BINARY_SOURCE"
-              cp "$BINARY_SOURCE" "Payload/$TARGET_APP/$EXEC_NAME"
-            else
-              echo "KRITISCHER FEHLER: Keine Binärdatei erzeugt!"
-              exit 1
-            fi
+            cp "$BINARY_SOURCE" "Payload/$TARGET_APP/$EXEC_NAME"
           fi
           
-          # 4. Ausführrechte setzen (überlebenswichtig für Sideloadly)
-          chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
+          # WICHTIG: Entferne Platzhalter aus der Info.plist, die Sideloadly verwirren könnten
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ru.artpancreas.freeaps" "$INFO_PLIST"
           
-          # 5. IPA packen
+          chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
           zip -r iAPS.ipa Payload
 
       - name: Upload Artifact
