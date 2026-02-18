@@ -1,78 +1,43 @@
-name: Manual Simple Build (No Dev Account)
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-15
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-          fetch-depth: 0
-
-      - name: Set up Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest'
-
-      - name: Install xcodeproj
-        run: sudo gem install xcodeproj
-
-      - name: Completely Remove Watch Targets (Ruby)
+- name: Completely Remove Watch Targets and Dependencies (Ruby)
         run: |
-          # Dieses Skript löscht die Watch-Ziele direkt aus den Projektdateien,
-          # damit Xcode gar nicht erst versucht, sie für iOS zu bauen.
           ruby -e "
           require 'xcodeproj'
-          ['FreeAPS.xcodeproj', 'LoopKit/LoopKit.xcodeproj'].each do |path|
-            next unless File.exist?(path)
-            puts 'Bearbeite #{path}...'
-            project = Xcodeproj::Project.open(path)
-            project.targets.dup.each do |target|
-              if target.name.downcase.include?('watch')
-                puts \"Entferne Target: #{target.name}\"
-                target.remove_from_project
+          path = 'FreeAPS.xcodeproj'
+          project = Xcodeproj::Project.open(path)
+          
+          # 1. Entferne die Watch-Ziele
+          project.targets.dup.each do |target|
+            if target.name.downcase.include?('watch')
+              puts \"Entferne Target: #{target.name}\"
+              target.remove_from_project
+            end
+          end
+
+          # 2. Entferne die 'Embed Watch Content' Build Phase beim Haupt-Target
+          main_target = project.targets.find { |t| t.name == 'FreeAPS' }
+          if main_target
+            main_target.build_phases.dup.each do |phase|
+              # Wir löschen die Phase, die versucht Watch-Apps zu kopieren
+              if phase.respond_to?(:name) && phase.name =~ /Watch/i
+                puts \"Entferne Build Phase: #{phase.name}\"
+                phase.remove_from_project
+              end
+              # Sicherheitshalber auch Kopier-Phasen prüfen, die Watch-Dateien enthalten
+              if phase.isa == 'PBXCopyFilesBuildPhase' && phase.symbolic_path == :watch_app
+                 puts \"Entferne Watch Copy Phase\"
+                 phase.remove_from_project
               end
             end
-            project.save
+          end
+          
+          project.save
+          
+          # 3. Auch in LoopKit aufräumen
+          if File.exist?('LoopKit/LoopKit.xcodeproj')
+            lk_project = Xcodeproj::Project.open('LoopKit/LoopKit.xcodeproj')
+            lk_project.targets.dup.each do |t|
+              t.remove_from_project if t.name.downcase.include?('watch')
+            end
+            lk_project.save
           end
           "
-
-      - name: Build and Archive
-        run: |
-          xcodebuild archive \
-          -workspace "FreeAPS.xcworkspace" \
-          -scheme "FreeAPSWorkspace" \
-          -configuration Release \
-          -archivePath iAPS.xcarchive \
-          -sdk iphoneos \
-          -destination "generic/platform=iOS" \
-          CODE_SIGNING_ALLOWED=NO \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGN_IDENTITY="" \
-          CODE_SIGN_ENTITLEMENTS="" \
-          GCC_WARN_INHIBIT_ALL_WARNINGS=YES \
-          COMPILER_INDEX_STORE_ENABLE=NO \
-          VALIDATE_WORKSPACE=NO \
-          SKIP_INSTALL=NO
-
-      - name: Prepare IPA
-        run: |
-          mkdir -p Payload
-          APP_PATH=$(find iAPS.xcarchive -name "FreeAPS.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "Fehler: App nicht gefunden!"
-            exit 1
-          fi
-          echo "Gefundener App-Pfad: $APP_PATH"
-          cp -r "$APP_PATH" Payload/
-          zip -r iAPS.ipa Payload
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: iAPS-unsigned-ipa
-          path: iAPS.ipa
