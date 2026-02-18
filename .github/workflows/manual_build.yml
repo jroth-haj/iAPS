@@ -10,12 +10,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: 'recursive' # Lädt alle notwendigen Unterprojekte
+          fetch-depth: 0
 
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest
+          xcode-version: 'latest'
+
+      - name: Verify Workspace Location
+        run: |
+          ls -F
+          # Dieser Schritt zeigt uns im Log, ob Fast-iAPS.xcworkspace wirklich hier liegt
 
       - name: Build iAPS (Generic iOS Device)
         run: |
@@ -25,7 +31,11 @@ jobs:
           -configuration Release \
           -archivePath iAPS.xcarchive \
           -sdk iphoneos \
-          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_ALLOWED=NO \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGN_ENTITLEMENTS="" \
+          GCC_WARN_INHIBIT_ALL_WARNINGS=YES
 
       - name: Prepare IPA
         run: |
