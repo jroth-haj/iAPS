@@ -23,35 +23,56 @@ jobs:
 
       - name: Completely Remove Watch Targets (Ruby)
         run: |
-          ruby -e "
+          cat << 'EOF' > remove_watch.rb
           require 'xcodeproj'
           ['FreeAPS.xcodeproj', 'LoopKit/LoopKit.xcodeproj'].each do |path|
             next unless File.exist?(path)
-            puts 'Bearbeite #{path}...'
+            puts "Bearbeite #{path}..."
             project = Xcodeproj::Project.open(path)
-            project.targets.dup.each do |target|
-              if target.name.downcase.include?('watch')
-                puts \"Entferne Target: #{target.name}\"
-                target.remove_from_project
-              end
-            end
             
-            # Entferne Watch-Abhängigkeiten vom Haupt-Target
+            # Haupt-Target bereinigen (Abhängigkeiten und Phasen)
             if path == 'FreeAPS.xcodeproj'
               main_target = project.targets.find { |t| t.name == 'FreeAPS' }
               if main_target
+                # 1. Entferne feste Abhängigkeiten zur Watch-App
+                main_target.dependencies.dup.each do |dep|
+                  if dep.target && dep.target.name.downcase.include?('watch')
+                    puts "Entferne Abhängigkeit: #{dep.target.name}"
+                    dep.remove_from_project
+                  end
+                end
+                
+                # 2. Entferne Kopier-Phasen der Watch-App
                 main_target.build_phases.dup.each do |phase|
-                  if (phase.respond_to?(:name) && phase.name =~ /watch/i) || 
-                     (phase.isa == 'PBXCopyFilesBuildPhase' && phase.symbolic_path == :watch_app)
-                    puts \"Entferne Build Phase: #{phase.isa}\"
+                  name = phase.respond_to?(:name) ? phase.name : nil
+                  if name && name.downcase.include?('watch')
+                    puts "Entferne Build Phase: #{name}"
                     phase.remove_from_project
+                    next
+                  end
+                  if phase.respond_to?(:files)
+                    has_watch = phase.files.any? { |f| f.display_name && f.display_name.downcase.include?('watch') }
+                    if has_watch
+                      puts "Entferne Phase mit Watch-Dateien"
+                      phase.remove_from_project
+                    end
                   end
                 end
               end
             end
+            
+            # Watch-Targets komplett aus allen Projekten löschen
+            project.targets.dup.each do |target|
+              if target.name.downcase.include?('watch')
+                puts "Entferne Target: #{target.name}"
+                target.remove_from_project
+              end
+            end
+            
             project.save
           end
-          "
+          EOF
+          ruby remove_watch.rb
 
       - name: Build and Archive
         run: |
@@ -79,6 +100,7 @@ jobs:
             echo "Fehler: App nicht gefunden!"
             exit 1
           fi
+          echo "Gefundener App-Pfad: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r iAPS.ipa Payload
 
