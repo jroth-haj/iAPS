@@ -18,30 +18,28 @@ jobs:
         with:
           xcode-version: 'latest'
 
-      - name: Clean Scheme (Remove Watch)
+      - name: Install xcodeproj
+        run: sudo gem install xcodeproj
+
+      - name: Completely Remove Watch Targets (Ruby)
         run: |
-          SCHEME_PATH="FreeAPS.xcworkspace/xcshareddata/xcschemes/FreeAPSWorkspace.xcscheme"
-          echo "Säubere Scheme: $SCHEME_PATH"
-          
-          # Wir nutzen Python, um das XML sauber zu bearbeiten. 
-          # Das löscht alle Bau-Einträge, die "Watch" im Namen haben.
-          python3 - <<EOF
-          import xml.etree.ElementTree as ET
-          tree = ET.parse('$SCHEME_PATH')
-          root = tree.getroot()
-          entries = root.find('.//BuildActionEntries')
-          if entries is not None:
-              to_remove = []
-              for entry in entries.findall('BuildActionEntry'):
-                  ref = entry.find('BuildableReference')
-                  if ref is not None:
-                      name = ref.get('BlueprintName', '')
-                      if 'Watch' in name or 'watchOS' in name:
-                          to_remove.append(entry)
-              for entry in to_remove:
-                  entries.remove(entry)
-              tree.write('$SCHEME_PATH', encoding='UTF-8', xml_declaration=True)
-          EOF
+          # Dieses Skript löscht die Watch-Ziele direkt aus den Projektdateien,
+          # damit Xcode gar nicht erst versucht, sie für iOS zu bauen.
+          ruby -e "
+          require 'xcodeproj'
+          ['FreeAPS.xcodeproj', 'LoopKit/LoopKit.xcodeproj'].each do |path|
+            next unless File.exist?(path)
+            puts 'Bearbeite #{path}...'
+            project = Xcodeproj::Project.open(path)
+            project.targets.dup.each do |target|
+              if target.name.downcase.include?('watch')
+                puts \"Entferne Target: #{target.name}\"
+                target.remove_from_project
+              end
+            end
+            project.save
+          end
+          "
 
       - name: Build and Archive
         run: |
@@ -65,6 +63,11 @@ jobs:
         run: |
           mkdir -p Payload
           APP_PATH=$(find iAPS.xcarchive -name "FreeAPS.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Fehler: App nicht gefunden!"
+            exit 1
+          fi
+          echo "Gefundener App-Pfad: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r iAPS.ipa Payload
 
