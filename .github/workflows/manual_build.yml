@@ -20,22 +20,31 @@ jobs:
 
       - name: Find and Build
         run: |
-          # 1. Workspace finden
-          WORKSPACE_PATH=$(find . -name "*.xcworkspace" | head -n 1)
+          # Gezielte Suche nach dem Haupt-Workspace (schließt Unterordner wie DanaKit aus)
+          # Wir suchen zuerst im Root und im iAPS-Ordner
+          WORKSPACE_PATH=$(find . -maxdepth 2 -name "*.xcworkspace" | grep -v "Pods" | head -n 1)
+          
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "Standard-Suche fehlgeschlagen, suche tiefer..."
+            WORKSPACE_PATH=$(find . -name "*.xcworkspace" | grep -v "Dependencies" | grep -v "DanaKit" | head -n 1)
+          fi
+
           WORKSPACE_DIR=$(dirname "$WORKSPACE_PATH")
           WORKSPACE_NAME=$(basename "$WORKSPACE_PATH")
           cd "$WORKSPACE_DIR"
           
-          echo "Baue Workspace: $WORKSPACE_NAME in $WORKSPACE_DIR"
+          echo "Baue Haupt-Workspace: $WORKSPACE_NAME in $WORKSPACE_DIR"
 
-          # 2. Versuchen, das richtige Scheme zu finden (iAPS oder FreeAPS)
+          # Liste alle Schemes zur Sicherheit im Log auf
+          xcodebuild -list -workspace "$WORKSPACE_NAME"
+
+          # Scheme-Logik
           SCHEME="iAPS"
           if ! xcodebuild -list -workspace "$WORKSPACE_NAME" | grep -q "iAPS"; then
             SCHEME="FreeAPS"
           fi
           echo "Benutze Scheme: $SCHEME"
 
-          # 3. Der eigentliche Build
           xcodebuild archive \
           -workspace "$WORKSPACE_NAME" \
           -scheme "$SCHEME" \
@@ -51,8 +60,7 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p Payload
-          # Sucht die .app Datei im Archiv-Ordner
-          APP_PATH=$(find . -name "*.app" -path "*/iAPS.xcarchive/*")
+          APP_PATH=$(find . -name "*.app" -path "*/iAPS.xcarchive/*" | head -n 1)
           cp -r "$APP_PATH" Payload/
           zip -r iAPS.ipa Payload
 
