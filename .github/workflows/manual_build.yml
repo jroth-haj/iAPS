@@ -95,36 +95,57 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p Payload
-          # Suche den .app Ordner im Archiv
+          
+          # 1. Suche den .app Ordner im Archiv
           APP_PATH=$(find iAPS.xcarchive -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "Fehler: App nicht gefunden!"
             exit 1
           fi
+          echo "Kopiere $APP_PATH nach Payload/"
           cp -r "$APP_PATH" Payload/
           
-          # FIX: Namen der Binärdatei mit Info.plist abgleichen
-          TARGET_APP=$(ls Payload | grep .app)
+          TARGET_APP=$(basename "$APP_PATH")
           INFO_PLIST="Payload/$TARGET_APP/Info.plist"
-          # Lese den erwarteten Namen der Executable aus der Info.plist
-          # Da plutil binär sein kann, nutzen wir einen stabilen Weg
-          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
           
+          # 2. Lese den erwarteten Namen der Executable
+          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO_PLIST")
           echo "Info.plist erwartet Executable: $EXEC_NAME"
           
-          # Prüfe, ob eine ausführbare Datei vorhanden ist und benenne sie ggf. um
-          # Wir suchen nach der größten Datei im App-Ordner, die keine Endung hat (meist die Binary)
-          CURRENT_EXEC=$(find "Payload/$TARGET_APP" -maxdepth 1 -type f ! -name "*.*" -exec executable {} \; -print | head -n 1)
+          # 3. Diagnose: Zeige an, was Xcode wirklich gebaut hat
+          echo "--- INHALT DES APP-ORDNERS ---"
+          ls -la "Payload/$TARGET_APP/"
+          echo "------------------------------"
           
-          if [ ! -z "$CURRENT_EXEC" ] && [ "$(basename "$CURRENT_EXEC")" != "$EXEC_NAME" ]; then
-            echo "Benenne Binärdatei um: $(basename "$CURRENT_EXEC") -> $EXEC_NAME"
-            mv "$CURRENT_EXEC" "Payload/$TARGET_APP/$EXEC_NAME"
+          # 4. Finde die kompilierte Binärdatei (Datei ohne Endung, schließt PkgInfo aus)
+          CURRENT_EXEC=$(find "Payload/$TARGET_APP" -maxdepth 1 -type f ! -name "*.*" ! -name "PkgInfo" | head -n 1)
+          
+          if [ -n "$CURRENT_EXEC" ]; then
+            echo "Gefundene Binärdatei: $CURRENT_EXEC"
+            CURRENT_EXEC_NAME=$(basename "$CURRENT_EXEC")
+            
+            # Umbenennen, falls der Name abweicht
+            if [ "$CURRENT_EXEC_NAME" != "$EXEC_NAME" ]; then
+              echo "Benenne um: $CURRENT_EXEC_NAME -> $EXEC_NAME"
+              mv "$CURRENT_EXEC" "Payload/$TARGET_APP/$EXEC_NAME"
+            fi
+            
+            # Ausführbare Rechte setzen
+            chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
+            echo "Binärdatei erfolgreich vorbereitet."
+          else
+            echo "WARNUNG: Konnte die Binärdatei nicht automatisch ermitteln."
+            echo "Prüfe direkt auf $EXEC_NAME..."
+            if [ -f "Payload/$TARGET_APP/$EXEC_NAME" ]; then
+              chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
+              echo "Binärdatei $EXEC_NAME gefunden und Rechte gesetzt."
+            else
+              echo "FEHLER: Die kompilierte Binärdatei fehlt komplett!"
+              exit 1
+            fi
           fi
           
-          # Sicherstellen, dass die Binärdatei ausführbar ist (wichtig für Sideloadly)
-          chmod +x "Payload/$TARGET_APP/$EXEC_NAME"
-          
-          # IPA erstellen
+          # 5. IPA erstellen
           zip -r iAPS.ipa Payload
 
       - name: Upload Artifact
